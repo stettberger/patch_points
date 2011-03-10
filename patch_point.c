@@ -150,14 +150,14 @@ patch_point_get(patch_point_list *ppl, const char *name) {
         // je {block_address}
         // {else_block}
         consume += 2;
-        pp->jump_offset = consume + asm_code[jmp_addr + 1];
+        pp->jump_offset = consume + (signed char)asm_code[jmp_addr + 1];
     } else if (asm_code[jmp_addr] == 0x75) { // jne 2 byte
         pp->jump_to_block = 0;
 
         // jn {else_block}
         // {block}
         consume += 2;
-        pp->jump_offset = consume + asm_code[jmp_addr + 1];
+        pp->jump_offset = consume + (signed char) asm_code[jmp_addr + 1];
     } else if (asm_code[jmp_addr] == 0x0f && asm_code[jmp_addr + 1] == 0x84) {
         // jee 4 byte
         pp->jump_to_block = 1;
