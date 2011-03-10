@@ -4,28 +4,7 @@
 #include <sys/mman.h>
 #include <stdbool.h>
 
-
-struct patch_point {
-    const char *name;
-    char jump_to_block;
-    signed int jump_offset;
-    char *jump_ptr;
-    // Link element
-    struct patch_point * next;
-};
-
-struct patch_point_value {
-    const char *name;
-    bool value;
-    struct patch_point_value *next;
-};
-
-typedef struct {
-    struct patch_point *points;
-    struct patch_point_value *values;
-} patch_point_list;
-
-
+#include "patch_point.h"
 
 void
 __patch_point_writable(char *asm_ptr, bool writeable) {
@@ -198,47 +177,3 @@ patch_point_get(patch_point_list *ppl, const char *name) {
 
     return 0;
 }
-
-#define patch_point(ppl, name) if (__patch_point(ppl, name) == 23)
-
-#define patch_point_disable(ppl, name) patch_point_set(ppl, name, 0)
-#define patch_point_enable(ppl, name) patch_point_set(ppl, name, 1)
-
-
-patch_point_list pps;
-
-
-void barfoo() {
-    patch_point(&pps, "garlic") {
-        printf("enabled\n");
-    } else {
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-        printf("disabled\n");
-
-    }
-}
-
-
-int main(int argc, char *argv[])
-{
-    int i;
-
-    for (i = 0; i < 3; i++) {
-        barfoo();
-        patch_point(&pps, "garlic") {
-            printf("foo\n");
-        }
-        patch_point_disable(&pps, "garlic");
-    }
-}
-
