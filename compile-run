@@ -1,0 +1,10 @@
+#!/bin/sh
+
+c_file=$(mktemp tmp.XXXXXXXX.c)
+exe_file=$(mktemp tmp.XXXXXXXX.exe)
+
+file=$1; shift
+cat $file > $c_file
+gcc $c_file -o $exe_file ${CFLAGS} "$@"  -lpatch_point 
+./$exe_file
+rm -f $c_file $exe_file
