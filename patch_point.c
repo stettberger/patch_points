@@ -115,43 +115,61 @@ patch_point_get(patch_point_list *ppl, const char *name) {
     assert(*((int *)&asm_code[1]) + call_address + 5
            == (int)&__patch_point);
 
+    int cmp_addr = 5;
+    /* Determine where the compare starts, since there can be
+       instructions between call and compare */
+    {
+        int i;
+        for (i = 0; i < 10; i++) {
+            if (asm_code[cmp_addr + i] != 0x83)
+                continue;
+            if (asm_code[cmp_addr + i + 1] != 23
+                && asm_code[cmp_addr + i + 2] != 23)
+                continue;
+            break;
+        }
+        assert(i!=10);
+        cmp_addr += i;
+    }
+
     /* cmp 23 %eax */
-    assert(asm_code[6] == 23 || asm_code[7] == 23);
-    assert(asm_code[5] == 0x83);  // cmp
+    assert(asm_code[cmp_addr + 1] == 23 || asm_code[cmp_addr + 2] == 23);
+    assert(asm_code[cmp_addr] == 0x83);  // cmp
 
     struct patch_point * pp = malloc(sizeof(struct patch_point));
     if (!pp) { perror("malloc"); exit(-1); }
 
     pp->jump_ptr = (char *) call_address;
 
-    int consume = 8;
-    if (asm_code[8] == 0x74) { // je 2 byte
+    int jmp_addr = cmp_addr + 3;
+    int consume = jmp_addr;
+    if (asm_code[jmp_addr] == 0x74) { // je 2 byte
         pp->jump_to_block = 1;
 
         // Jump offset from first byte of call
         // je {block_address}
         // {else_block}
         consume += 2;
-        pp->jump_offset = consume + asm_code[9];
-    } else if (asm_code[8] == 0x75) { // jne 2 byte
+        pp->jump_offset = consume + asm_code[jmp_addr + 1];
+    } else if (asm_code[jmp_addr] == 0x75) { // jne 2 byte
         pp->jump_to_block = 0;
 
         // jn {else_block}
         // {block}
         consume += 2;
-        pp->jump_offset = consume + asm_code[9];
-    } else if (asm_code[8] == 0x0f && asm_code[9] == 0x84) {
+        pp->jump_offset = consume + asm_code[jmp_addr + 1];
+    } else if (asm_code[jmp_addr] == 0x0f && asm_code[jmp_addr + 1] == 0x84) {
         // jee 4 byte
         pp->jump_to_block = 1;
         // 2 byte opcode + 4 byte address
         consume += 6;
-        pp->jump_offset = consume + *((int *)&asm_code[10]);
-    } else if (asm_code[8] == 0x0f && asm_code[9] == 0x85) {
+        pp->jump_offset = consume + *((int *)&asm_code[jmp_addr + 2]);
+    } else if (asm_code[jmp_addr] == 0x0f && asm_code[jmp_addr + 1] == 0x85) {
         // jne 4 byte
         pp->jump_to_block = 0;
         // 2 byte opcode + 4 byte address
         consume += 6;
-        pp->jump_offset = consume + *((int *)&asm_code[10]);
+        pp->jump_offset = consume + *((int *)&asm_code[jmp_addr + 2]);
     } else {
         assert(false);
     }
