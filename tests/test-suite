@@ -95,11 +95,10 @@ do_test()
 	fi
 	test_name=$last_result
 
-	echo "     TEST    $test_name ($file)"
 
 	# does the test provide a specific command ?
 	cmd=`eval echo $default_path/$default_cmd`
-	get_value "check-command" $file
+ 	get_value "check-command" $file
 	if [ "$?" -eq "0" ]; then
 		last_result=`echo $last_result | sed -e 's/^ *//'`
 		cmd=`eval echo $default_path/$last_result`
@@ -115,35 +114,54 @@ do_test()
 	fi
 	verbose "Expecting exit value: $expected_exit_value"
 
+	# grab cflags
+	get_value "check-cflags" $file
+	if [ "$?" -eq "0" ]; then
+        compilation_flags=`echo $last_result | tr -d ' '`
+	else
+        compilation_flags="-O0 | -O1 | -O2"
+	fi
+	verbose "Expecting exit value: $expected_exit_value"
+
+
 	# grab the expected output
 	sed -n '/check-output-start/,/check-output-end/p' $file \
 		| grep -v check-output > "$file".output.expected
 	sed -n '/check-error-start/,/check-error-end/p' $file \
 		| grep -v check-error > "$file".error.expected
 
-	# grab the actual output & exit value
-	$cmd 1> $file.output.got 2> $file.error.got
-	actual_exit_value=$?
+    echo ${compilation_flags} | tr '|' '\n' | { while read flags; do
+    	# grab the actual output & exit value
+	    echo "     TEST    $test_name ($file) ($flags)"
 
-	for stream in output error; do
-        tmpa=$(mktemp); tmpb=$(mktemp)
-        sort "$file".$stream.expected > $tmpa
-        sort "$file".$stream.got > $tmpb
-		diff -u  $tmpa  $tmpb > "$file".$stream.diff
-		if [ "$?" -ne "0" ]; then
-			error "actual $stream text does not match expected $stream text."
-			error  "see $file.$stream.* for further investigation."
-			test_failed=1
-		fi
-        rm -f $tmpa $tmpb
-	done
+	    CFLAGS=$flags $cmd 1> $file.output.got 2> $file.error.got
+	    actual_exit_value=$?
 
-	if [ "$actual_exit_value" -ne "$expected_exit_value" ]; then
-		error "Actual exit value does not match the expected one."
-		error "expected $expected_exit_value, got $actual_exit_value."
-		test_failed=1
-	fi
+	    for stream in output error; do
+            tmpa=$(mktemp); tmpb=$(mktemp)
+            sort "$file".$stream.expected > $tmpa
+            sort "$file".$stream.got > $tmpb
+		    diff -u  $tmpa  $tmpb > "$file".$stream.diff
+		    if [ "$?" -ne "0" ]; then
+			    error "actual $stream text does not match expected $stream text."
+			    error  "see $file.$stream.* for further investigation."
+			    test_failed=1
+        	fi
+            if [ "$actual_exit_value" -ne "$expected_exit_value" ]; then
+		        error "Actual exit value does not match the expected one."
+		        error "expected $expected_exit_value, got $actual_exit_value."
+		        test_failed=1
+	        fi
 
+            rm -f $tmpa $tmpb
+	    done
+        if [ x"$test_failed" = x"1" ]; then
+            exit 1;
+        fi
+    done }
+
+    test_failed=$?
+    
 	if [ "$test_failed" -eq "1" ]; then
 		ko_tests=`expr $ko_tests + 1`
 		get_tag "check-known-to-fail" $file
