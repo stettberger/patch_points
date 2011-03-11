@@ -1,0 +1,175 @@
+\documentclass{beamer}
+\usepackage{pdfpages}
+\usepackage{listings}
+\usepackage{tikz}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+\usepackage{courier}
+
+% setup languages
+\lstloadlanguages{C,C++,ASM}
+
+\usetikzlibrary{shapes,shadows}
+%\setbeamertemplate{navigation symbols}{}
+
+
+\lstdefinelanguage{asm}{
+  basicstyle=\ttfamily,
+  morekeywords={call,cmp,jne,nop,jmp},
+}
+
+\lstset{basicstyle=\ttfamily}
+
+
+\begin{document}
+
+\title{Patch points for dynamic patching}
+\subtitle{No fear of self modifing code}
+\author[cd]{Christian Dietrich}
+%\institute{Department of Computer Science 4\\\smallskip
+%  Distributed Systems and Operating Systems\\\bigskip
+%  University of Erlangen-Nuremberg}
+\date{\today} 
+
+\begin{frame}[plain]
+\titlepage
+\end{frame}
+
+
+\begin{frame}\frametitle{Goals}
+  \begin{itemize}
+    \item<1-> Minimize overhead for conditional disabling code blocks \bigskip{}
+    \item<2-> Integrate within the C language nicely \bigskip{}
+    \item<3-> Robust implementation for X86 \only<4->{\alert{ - hopefully}} \bigskip{}
+    \item<5-> Solution is searching a problem! Just a PoC.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]\frametitle{Conversion by Example - Original Code} 
+  \begin{lstlisting}[language=C,escapechar=`]
+patch_point_list ppl;
+
+void foo(void) {
+  patch_point(&ppl, "debug") {
+    printf("Debugging is enabled\n");
+  }
+}
+`\pause{}`
+// Disable all "debug" patch-points
+patch_point_disable(&ppl, "debug");
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]\frametitle{Easy solution with compare?}
+  \begin{lstlisting}[language=C,escapechar=`]
+patch_point_list ppl;
+
+void foo(void) {
+`\only<2>{\alert{\ \ \ \ // Compare and conditional jump for every\\
+\ \ \ \ // call of foo}}`
+  if (is_enabled(&ppl, "debug")) {
+    printf("Debugging is enabled\n");
+  }
+}
+
+// Disable all "debug" patch-points
+patch_point_disable(&ppl, "debug");
+  \end{lstlisting}
+\pause
+\end{frame}
+
+\begin{frame}[fragile]\frametitle{Conversion by example - Macro expansion}
+  \begin{lstlisting}[language=C,escapechar=`]
+
+#define patch_point(ppl, name) \
+  if(__patch_point(ppl, name) == 23)
+
+patch_point_list ppl;
+
+void foo(void) {
+  if (__patch_point(&ppl, "debug") == 23) {
+    printf("Debugging is enabled\n");
+  }
+}
+\end{lstlisting}
+\end{frame}
+
+
+\begin{frame}[fragile]\frametitle{Conversion by example - Compiled and linked code}
+\begin{lstlisting}[language=C,escapechar=`]
+  if (__patch_point(&ppl, "debug") == 23)
+\end{lstlisting}
+
+\begin{center}
+  \includegraphics[height=1.5cm]{pfeil}
+\end{center}
+
+\begin{lstlisting}[language=asm,escapechar=`]
+e8 fb 02 00 00  call   <__patch_point>
+83 f8 17        cmp    $0x17,%eax
+75 10           jne    <_end_of_block>
+\end{lstlisting}
+
+\end{frame}
+
+\begin{frame}[fragile]\frametitle{What we have}
+
+\begin{lstlisting}[language=asm,escapechar=`]
+e8 fb 02 00 00  call   <__patch_point>
+83 f8 17        cmp    $0x17,%eax
+75 10           jne    <_end_of_block>
+\end{lstlisting}
+
+\begin{itemize}
+  \item<1-> In \alert{\_\_patch\_point} we have the address of the \textbf{call}
+  \item<2-> Search \textbf{cmp} and \textbf{jne} to get end of block
+  \item<3-> Put position and jump offset in \textbf{patch\_point\_list}
+\end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]\frametitle{Conversion by example - enable/disable}
+\begin{center}
+\begin{tikzpicture}[node distance=2.8cm, bend angle=45]
+  \node[draw] (base){
+\begin{lstlisting}[language=asm,escapechar=`]
+e8 fb 02 00 00  call   <__patch_point>
+83 f8 17        cmp    0x17,%eax
+75 10           jne    <_end_of_block>
+\end{lstlisting}};
+
+  \node [draw] (on)  [below of=base, left of=off, label=below:enabled] {
+  \begin{lstlisting}[language=asm,escapechar=`]
+nop nop nop nop nop
+nop nop nop
+nop nop
+\end{lstlisting}
+};
+  \node [draw] (off) [right of=on, below of=base, label=below:disabled] {
+\begin{lstlisting}[language=asm,escapechar=`]
+// use 4 byte jmp
+jmp <_end_of_block> 
+jmp <_end_of_block>
+\end{lstlisting}
+};
+\draw[->,thick,bend left] (base) -- (on);
+\draw[->,thick,bend right] (base) -- (off);
+
+\end{tikzpicture}
+\end{center}
+\end{frame}
+
+\begin{frame}[fragile]\frametitle{Problems and solutions}
+\begin{itemize}
+  \item Block not directly after compare \pause \alert{ - solved, inverse enabling}\pause \bigskip
+  \item Different jumps \pause \alert{ - solved, decoding 1/4 byte jumps}\pause \bigskip
+  \item Instructions between \textbf{call} and \textbf{cmp} \pause \alert{ - solved}\pause \bigskip
+  \item Alls testcases work with -O0, -O1, -O2, -O3, -Os
+  \item One object and one header file
+\end{itemize}
+\pause\bigskip
+\begin{center}
+\huge\alert{Solution is searching Problem}
+\end{center}
+\end{frame}
+
+\end{document}
