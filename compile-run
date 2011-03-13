@@ -5,6 +5,7 @@ exe_file=$(mktemp tmp.XXXXXXXX.exe)
 
 file=$1; shift
 cat $file > $c_file
-gcc $c_file -o $exe_file ${CFLAGS} "$@"  -lpatch_point 
+${CC:-gcc} $c_file -o $exe_file ${CFLAGS} "$@"  -lpatch_point 
+chmod u+x $exe_file
 ./$exe_file
 rm -f $c_file $exe_file
