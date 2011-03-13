@@ -90,7 +90,9 @@ patch_point_get(patch_point_list *ppl, const char *name) {
 
 
 
- __attribute__((noinline)) int
+__attribute__((noinline))
+__attribute__((fastcall))
+int
  __patch_point(patch_point_list *ppl, const char *name)
 {
     /* Must be volatile to force movl %esp, %ebp */

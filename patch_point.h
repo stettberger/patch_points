@@ -27,7 +27,9 @@ void patch_point_set(patch_point_list *ppl, const char *name, bool on);
 bool patch_point_get(patch_point_list *ppl, const char *name);
 
 // This is needed by the patch_point macro
-__attribute__((noinline)) int
+__attribute__((noinline))
+__attribute__((fastcall))
+int
 __patch_point(patch_point_list *ppl, const char *name);
 
 #define patch_point(ppl, name) if (__patch_point(ppl, name) == 23)
