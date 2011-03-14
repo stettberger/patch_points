@@ -90,6 +90,75 @@ patch_point_get(patch_point_list *ppl, const char *name) {
 
 
 
+
+static bool
+__patch_point_decode_jump(unsigned char *jmp_ptr, struct patch_point *pp, int *consume) {
+    if (jmp_ptr[0] == 0x74) { // je 2 byte
+        pp->jump_to_block = 1;
+
+        // Jump offset from first byte of call
+        // je {block_address}
+        // {else_block}
+        *consume += 2;
+        pp->jump_offset += (signed char)jmp_ptr[1] + 2;
+
+    } else if (jmp_ptr[0] == 0x75) { // jne 2 byte
+        pp->jump_to_block = 0;
+
+        // jn {else_block}
+        // {block}
+        *consume += 2;
+        pp->jump_offset += (signed char) jmp_ptr[1] + 2;
+    } else if (jmp_ptr[0] == 0x0f && jmp_ptr[1] == 0x84) {
+        // jee 4 byte
+        pp->jump_to_block = 1;
+        // 2 byte opcode + 4 byte address
+        *consume += 6;
+        pp->jump_offset += *((int *)&jmp_ptr[2]) + 6;
+
+    } else if (jmp_ptr[0] == 0x0f && jmp_ptr[1] == 0x85) {
+        // jne 4 byte
+        pp->jump_to_block = 0;
+        // 2 byte opcode + 4 byte address
+        *consume += 6;
+        pp->jump_offset += *((int *)&jmp_ptr[2]) + 6;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool
+__patch_point_find_cmp(unsigned char *call_ptr, int *consume) {
+    // Jump over call
+    call_ptr += 5;
+    /* Determine where the compare starts, since there can be
+       instructions between call and compare */
+    int i;
+    for (i = 0; i < 10; i++) {
+        if (call_ptr[i] != 0x83)
+            continue;
+        if (call_ptr[i + 1] != 23
+            && call_ptr[i + 2] != 23)
+            continue;
+        break;
+    }
+    if (i == 10) return false;
+    call_ptr += i;
+
+    /* cmp 23 %eax */
+    if (!(call_ptr[1] == 23
+          || call_ptr[2] == 23))
+        return false;
+    if (!(call_ptr[0] == 0x83)) // cmp
+        return false;
+
+    *consume = 5 + i + 3;
+    return true;
+}
+
+
+
 __attribute__((noinline))
 __attribute__((fastcall))
 int
@@ -102,9 +171,8 @@ int
     asm ("movl 4(%%ebp), %0;" : "=r"(return_addr));
     /* A call is 5 bytes here, and the return address points after
        the call to this function */
-    int call_address = return_addr - 5;
+    unsigned char *call_address = (unsigned char *)return_addr - 5;
 
-    unsigned char *asm_code = (char *) call_address;
 
     /* This macro is used for developing, there the assert has to
        fail, to improve development. In real production code we use
@@ -125,80 +193,37 @@ int
     // je $end_of_block
 
     /* Is a call instruction ? */
-    __patch_point_assert(asm_code[0] == 0xe8);
+    __patch_point_assert(call_address[0] == 0xe8);
 
     /* Is our function called ? */
-    __patch_point_assert(*((int *)&asm_code[1]) + call_address + 5
-                         == (int)&__patch_point);
+    __patch_point_assert(*((int *)&call_address[1]) + call_address + 5
+                         == (unsigned char *)&__patch_point);
 
-    int cmp_addr = 5;
-    /* Determine where the compare starts, since there can be
-       instructions between call and compare */
-    {
-        int i;
-        for (i = 0; i < 10; i++) {
-            if (asm_code[cmp_addr + i] != 0x83)
-                continue;
-            if (asm_code[cmp_addr + i + 1] != 23
-                && asm_code[cmp_addr + i + 2] != 23)
-                continue;
-            break;
-        }
-        __patch_point_assert(i!=10);
-        cmp_addr += i;
-    }
-
-    /* cmp 23 %eax */
-    __patch_point_assert(asm_code[cmp_addr + 1] == 23 
-                         || asm_code[cmp_addr + 2] == 23);
-    __patch_point_assert(asm_code[cmp_addr] == 0x83);  // cmp
 
     struct patch_point * pp = malloc(sizeof(struct patch_point));
     __patch_point_assert(pp);
-
     pp->jump_ptr = (char *) call_address;
 
-    int jmp_addr = cmp_addr + 3;
-    int consume = jmp_addr;
-    if (asm_code[jmp_addr] == 0x74) { // je 2 byte
-        pp->jump_to_block = 1;
 
-        // Jump offset from first byte of call
-        // je {block_address}
-        // {else_block}
-        consume += 2;
-        pp->jump_offset = consume + (signed char)asm_code[jmp_addr + 1];
-    } else if (asm_code[jmp_addr] == 0x75) { // jne 2 byte
-        pp->jump_to_block = 0;
+    int consume;
+    __patch_point_assert
+        ( __patch_point_find_cmp((unsigned char *)call_address, &consume));
 
-        // jn {else_block}
-        // {block}
-        consume += 2;
-        pp->jump_offset = consume + (signed char) asm_code[jmp_addr + 1];
-    } else if (asm_code[jmp_addr] == 0x0f && asm_code[jmp_addr + 1] == 0x84) {
-        // jee 4 byte
-        pp->jump_to_block = 1;
-        // 2 byte opcode + 4 byte address
-        consume += 6;
-        pp->jump_offset = consume + *((int *)&asm_code[jmp_addr + 2]);
-    } else if (asm_code[jmp_addr] == 0x0f && asm_code[jmp_addr + 1] == 0x85) {
-        // jne 4 byte
-        pp->jump_to_block = 0;
-        // 2 byte opcode + 4 byte address
-        consume += 6;
-        pp->jump_offset = consume + *((int *)&asm_code[jmp_addr + 2]);
-    } else {
-        __patch_point_assert(false);
-    }
+    // Pointer to the jump
+    int jmp_addr = consume;
+    pp->jump_offset = jmp_addr;
+    __patch_point_assert
+        ( __patch_point_decode_jump(&call_address[jmp_addr], pp,
+                                    &consume));
 
     // Make code writable
-    __patch_point_writable(asm_code, true);
+    __patch_point_writable(call_address, true);
     int i;
     for (i = 0; i < consume; i++)
-        asm_code[i] = 0x90;
+        call_address[i] = 0x90;
 
     // make code not writable again
-    __patch_point_writable(asm_code, false);
+    __patch_point_writable(call_address, false);
 
     __patch_point_set_jump(pp, patch_point_get(ppl, name));
 
@@ -206,7 +231,6 @@ int
     pp->name = name;
 
     // Insert into list of patch points
-    // FIXME CAS
     pp->next = ppl->points;
     ppl->points = pp;
 
