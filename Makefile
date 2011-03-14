@@ -1,5 +1,5 @@
 OBJECTS=patch_point.o
-CFLAGS=-g -O0
+CFLAGS=-g -O0 -DWNAZI
 
 all: libpatch_point.a
 

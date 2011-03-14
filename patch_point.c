@@ -106,16 +106,30 @@ int
 
     unsigned char *asm_code = (char *) call_address;
 
+    /* This macro is used for developing, there the assert has to
+       fail, to improve development. In real production code we use
+       patch_point_get as an fallback
+    */
+
+#ifdef WNAZI
+#define __patch_point_assert(cond) assert(cond)
+#else
+#warning Production Code!! IDIOT! ;-)
+#define __patch_point_assert(cond) if (!(cond)) {\
+        return patch_point_get(ppl, name); \
+    }
+#endif
+
     // call __patch_point
     // cmp %eax, 23
     // je $end_of_block
 
     /* Is a call instruction ? */
-    assert(asm_code[0] == 0xe8);
+    __patch_point_assert(asm_code[0] == 0xe8);
 
     /* Is our function called ? */
-    assert(*((int *)&asm_code[1]) + call_address + 5
-           == (int)&__patch_point);
+    __patch_point_assert(*((int *)&asm_code[1]) + call_address + 5
+                         == (int)&__patch_point);
 
     int cmp_addr = 5;
     /* Determine where the compare starts, since there can be
@@ -130,16 +144,17 @@ int
                 continue;
             break;
         }
-        assert(i!=10);
+        __patch_point_assert(i!=10);
         cmp_addr += i;
     }
 
     /* cmp 23 %eax */
-    assert(asm_code[cmp_addr + 1] == 23 || asm_code[cmp_addr + 2] == 23);
-    assert(asm_code[cmp_addr] == 0x83);  // cmp
+    __patch_point_assert(asm_code[cmp_addr + 1] == 23 
+                         || asm_code[cmp_addr + 2] == 23);
+    __patch_point_assert(asm_code[cmp_addr] == 0x83);  // cmp
 
     struct patch_point * pp = malloc(sizeof(struct patch_point));
-    if (!pp) { perror("malloc"); exit(-1); }
+    __patch_point_assert(pp);
 
     pp->jump_ptr = (char *) call_address;
 
@@ -173,7 +188,7 @@ int
         consume += 6;
         pp->jump_offset = consume + *((int *)&asm_code[jmp_addr + 2]);
     } else {
-        assert(false);
+        __patch_point_assert(false);
     }
 
     // Make code writable

@@ -1,11 +1,12 @@
 #!/bin/sh
 
-c_file=$(mktemp tmp.XXXXXXXX.c)
-exe_file=$(mktemp tmp.XXXXXXXX.exe)
+# UNSAFE
+c_file=$(mktemp -u).c
+exe_file=$(mktemp)
 
 file=$1; shift
 cat $file > $c_file
 ${CC:-gcc} $c_file -o $exe_file ${CFLAGS} "$@"  -lpatch_point 
 chmod u+x $exe_file
-./$exe_file
+$exe_file
 rm -f $c_file $exe_file
