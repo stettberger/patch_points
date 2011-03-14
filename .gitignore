@@ -1,0 +1,7 @@
+tests/*.diff
+tests/*.got
+tests/*.expected
+.deps/*
+*.o
+*.a
+*~
