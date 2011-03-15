@@ -31,24 +31,24 @@ __patch_point_set_jump(struct patch_point *pp, bool on) {
 
     __patch_point_writable(pp->jump_ptr, true);
 
+    int jump_address;
     int i = 0;
     if ((on && pp->jump_to_block) || (!on && !pp->jump_to_block)) {
-        while (true) {
-            // Add two jumps to the block
-            pp->jump_ptr[i] = 0xe9; // JMP (4 Bytes)
-            int * addr = (int *)(pp->jump_ptr + 1 + i);
-            *addr = pp->jump_offset - 5 - i;
-            i += 5;
-            /* Space for a next jump? */
-            if ((i + 5) > pp->jump_space) break;
-        }
-
+        jump_address = pp->jump_offset;
     } else {
-        // Remove the Jump
-        for (i = 0; i < pp->jump_space; i++) {
-            pp->jump_ptr[i] = 0x90; // NOP == 0x90
-        }
+        jump_address = pp->jump_space;
     }
+
+    while (true) {
+        // Add two jumps to the block
+        pp->jump_ptr[i] = 0xe9; // JMP (4 Bytes)
+        int * addr = (int *)(pp->jump_ptr + 1 + i);
+        *addr = jump_address - 5 - i;
+        i += 5;
+        /* Space for a next jump? */
+        if ((i + 5) > pp->jump_space) break;
+    }
+
     __patch_point_writable(pp->jump_ptr, false);
 }
 
