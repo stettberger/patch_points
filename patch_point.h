@@ -8,6 +8,7 @@ struct patch_point {
     char jump_to_block;
     signed int jump_offset;
     char *jump_ptr;
+    int jump_space;
     // Link element
     struct patch_point * next;
 };

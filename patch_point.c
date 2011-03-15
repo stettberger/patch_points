@@ -31,19 +31,21 @@ __patch_point_set_jump(struct patch_point *pp, bool on) {
 
     __patch_point_writable(pp->jump_ptr, true);
 
-    int i;
+    int i = 0;
     if ((on && pp->jump_to_block) || (!on && !pp->jump_to_block)) {
-        // Add two jumps to the block
-        pp->jump_ptr[0] = 0xe9; // JMP (4 Bytes)
-        int * addr = (int *)(pp->jump_ptr + 1);
-        *addr = pp->jump_offset - 5;
+        while (true) {
+            // Add two jumps to the block
+            pp->jump_ptr[i] = 0xe9; // JMP (4 Bytes)
+            int * addr = (int *)(pp->jump_ptr + 1 + i);
+            *addr = pp->jump_offset - 5 - i;
+            i += 5;
+            /* Space for a next jump? */
+            if ((i + 5) > pp->jump_space) break;
+        }
 
-        pp->jump_ptr[5] = 0xe9; // JMP (4 Bytes)
-        addr = (int *)(pp->jump_ptr + 6);
-        *addr = pp->jump_offset - 10;
     } else {
         // Remove the Jump
-        for (i = 0; i < 10; i++) {
+        for (i = 0; i < pp->jump_space; i++) {
             pp->jump_ptr[i] = 0x90; // NOP == 0x90
         }
     }
@@ -216,14 +218,41 @@ int
         ( __patch_point_decode_jump(&call_address[jmp_addr], pp,
                                     &consume));
 
+    // Search for movl $(TEXT) %e[cd]x
+    // before call address, in order to remove them, they are used
+    // within the fast call of __patch_point
+    int movl_length = 0;
+    unsigned char *movl_ptr = call_address;
+    while (movl_length < 2) {
+        movl_ptr -= 5;
+        if (movl_ptr[0] == 0xb9) { // movl ecx
+            if (*((int*)&movl_ptr[1]) != (int) ppl) {
+                break;
+            }
+        } else if (movl_ptr[0] == 0xba) { // movl edx
+            if (*((int*)&movl_ptr[1]) != (int) name) {
+                break;
+            }
+        } else {
+            break;
+        }
+        movl_length ++;
+    }
+    // Consume the movls before out call
+    pp->jump_offset += (movl_length * 5);
+    pp->jump_ptr -= (movl_length * 5);
+    consume += (movl_length * 5);
+
+    pp->jump_space = consume;
+
     // Make code writable
-    __patch_point_writable(call_address, true);
+    __patch_point_writable(pp->jump_ptr, true);
     int i;
     for (i = 0; i < consume; i++)
-        call_address[i] = 0x90;
+        pp->jump_ptr[i] = 0x90;
 
     // make code not writable again
-    __patch_point_writable(call_address, false);
+    __patch_point_writable(pp->jump_ptr, false);
 
     __patch_point_set_jump(pp, patch_point_get(ppl, name));
 
