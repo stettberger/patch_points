@@ -7,7 +7,7 @@
 \usepackage{courier}
 
 % setup languages
-\lstloadlanguages{C,C++,ASM}
+\lstloadlanguages{C,C++}
 
 \usetikzlibrary{shapes,shadows}
 %\setbeamertemplate{navigation symbols}{}
@@ -38,7 +38,7 @@
 
 \begin{frame}\frametitle{Goals}
   \begin{itemize}
-    \item<1-> Minimize overhead for conditional disabling code blocks \bigskip{}
+    \item<1-> \textbf{Minimize} overhead for conditional disabling code blocks \bigskip{}
     \item<2-> Integrate within the C language nicely \bigskip{}
     \item<3-> Robust implementation for X86 \only<4->{\alert{ - hopefully}} \bigskip{}
     \item<5-> Solution is searching a problem! Just a PoC.
@@ -65,8 +65,8 @@ patch_point_disable(&ppl, "debug");
 patch_point_list ppl;
 
 void foo(void) {
-`\only<2>{\alert{\ \ \ \ // Compare and conditional jump for every\\
-\ \ \ \ // call of foo}}`
+`\only<2>{\alert{\ \ \ \ // Compare and conditional jump for every}}`
+`\only<2>{\alert{\ \ \ \ // call of foo}}`
   if (is_enabled(&ppl, "debug")) {
     printf("Debugging is enabled\n");
   }
@@ -129,7 +129,7 @@ e8 fb 02 00 00  call   <__patch_point>
 
 \begin{frame}[fragile]\frametitle{Conversion by example - enable/disable}
 \begin{center}
-\begin{tikzpicture}[node distance=2.8cm, bend angle=45]
+\begin{tikzpicture}[node distance=4cm, bend angle=45]
   \node[draw] (base){
 \begin{lstlisting}[language=asm,escapechar=`]
 e8 fb 02 00 00  call   <__patch_point>
@@ -137,14 +137,15 @@ e8 fb 02 00 00  call   <__patch_point>
 75 10           jne    <_end_of_block>
 \end{lstlisting}};
 
-  \node [draw] (on)  [below of=base, left of=off, label=below:enabled] {
+
+  \node [draw] (on)  [below left of=base, label=below:enabled] {
   \begin{lstlisting}[language=asm,escapechar=`]
 nop nop nop nop nop
 nop nop nop
 nop nop
 \end{lstlisting}
 };
-  \node [draw] (off) [right of=on, below of=base, label=below:disabled] {
+  \node [draw] (off) [below right of=base, label=below:disabled] {
 \begin{lstlisting}[language=asm,escapechar=`]
 // use 4 byte jmp
 jmp <_end_of_block> 
@@ -166,7 +167,45 @@ jmp <_end_of_block>
   \item Alls testcases work with -O0, -O1, -O2, -O3, -Os
   \item One object and one header file
 \end{itemize}
-\pause\bigskip
+\end{frame}
+
+\begin{frame}[fragile]\frametitle{Optimize it - fastcall}
+  Use fastcall (Argument passing over registers) and wipe out \textbf{mov}
+
+  \begin{lstlisting}[language=asm]
+mov    0x8048e40,%edx
+mov    0x804a040,%ecx
+call   8048ad6 <__patch_point>
+cmp    0x17,%eax
+jne    80485e9 <foo+0x55>
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]\frametitle{Optimize it - no nop slide}
+
+  \begin{itemize}
+  \item Instead of a nop slide, use a jump to the end of the nop slide.
+  \end{itemize}
+
+\begin{lstlisting}[language=asm]
+     jmp <call_address+10> // 5 bytes
+     jmp <call_address+5>  // 5 bytes
+\end{lstlisting}
+instead of
+\begin{center}
+  \begin{lstlisting}[language=asm]
+     nop nop nop nop nop 
+     nop nop nop nop nop
+  \end{lstlisting}
+\end{center}
+
+\begin{itemize}
+\item We get an maximal overhead of 3 cycles + memory access time.
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}
 \begin{center}
 \huge\alert{Solution is searching Problem}
 \end{center}
