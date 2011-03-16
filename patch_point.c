@@ -6,16 +6,20 @@
 
 #include "patch_point.h"
 
+extern char etext;
+
 void
 __patch_point_writable(char *asm_ptr, bool writeable) {
-    // FIXME
-    if (!writeable) return;
-
     static int pagesize = 0;
     if (pagesize == 0)
         pagesize = getpagesize();
 
     asm_ptr = asm_ptr - ((int)asm_ptr & (pagesize - 1));
+    char *data_segment = &etext - ((int)&etext & (pagesize - 1));
+
+    if (!writeable && ((asm_ptr + 1) >= data_segment))
+        return;
+
     if (mprotect(asm_ptr, pagesize * 2, PROT_READ |
                  (writeable ? PROT_WRITE : 0)
                  | PROT_EXEC) != 0) {
