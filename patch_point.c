@@ -141,7 +141,7 @@ __patch_point_find_cmp(unsigned char *call_ptr, int *consume) {
     /* Determine where the compare starts, since there can be
        instructions between call and compare */
     int i;
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < 100; i++) {
         if (call_ptr[i] != 0x83)
             continue;
         if (call_ptr[i + 1] != 23
@@ -149,7 +149,7 @@ __patch_point_find_cmp(unsigned char *call_ptr, int *consume) {
             continue;
         break;
     }
-    if (i == 10) return false;
+    if (i == 100) return false;
     call_ptr += i;
 
     /* cmp 23 %eax */
