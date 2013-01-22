@@ -31,29 +31,23 @@ __patch_point_writable(char *asm_ptr, bool writeable) {
 void
 __patch_point_set_jump(struct patch_point *pp, bool on) {
     assert(pp);
-    assert(pp->jump_offset != 0);
-
-    __patch_point_writable(pp->jump_ptr, true);
+    __patch_point_writable(pp->cmp_ptr, true);
 
     int jump_address;
     int i = 0;
     if ((on && pp->jump_to_block) || (!on && !pp->jump_to_block)) {
-        jump_address = pp->jump_offset;
+        pp->cmp_ptr[i] = 0xe9; // JMP (4 Bytes)
+        int * addr = (int *)(pp->cmp_ptr + 1);
+        *addr = (int) pp->jumpto_ptr - 5 - (int)pp->cmp_ptr;
     } else {
-        jump_address = pp->jump_space;
+        pp->cmp_ptr[0] = 0x90;
+        pp->cmp_ptr[1] = 0x8d;
+        pp->cmp_ptr[2] = 0x74;
+        pp->cmp_ptr[3] = 0x26;
+        pp->cmp_ptr[4] = 0x00;
     }
 
-    while (true) {
-        // Add two jumps to the block
-        pp->jump_ptr[i] = 0xe9; // JMP (4 Bytes)
-        int * addr = (int *)(pp->jump_ptr + 1 + i);
-        *addr = jump_address - 5 - i;
-        i += 5;
-        /* Space for a next jump? */
-        if ((i + 5) > pp->jump_space) break;
-    }
-
-    __patch_point_writable(pp->jump_ptr, false);
+    __patch_point_writable(pp->cmp_ptr, false);
 }
 
 void
@@ -94,48 +88,8 @@ patch_point_get(patch_point_list *ppl, const char *name) {
     return true; // Per Default all patch_points are enabled
 }
 
-
-
-
-static bool
-__patch_point_decode_jump(unsigned char *jmp_ptr, struct patch_point *pp, int *consume) {
-    if (jmp_ptr[0] == 0x74) { // je 2 byte
-        pp->jump_to_block = 1;
-
-        // Jump offset from first byte of call
-        // je {block_address}
-        // {else_block}
-        *consume += 2;
-        pp->jump_offset += (signed char)jmp_ptr[1] + 2;
-
-    } else if (jmp_ptr[0] == 0x75) { // jne 2 byte
-        pp->jump_to_block = 0;
-
-        // jn {else_block}
-        // {block}
-        *consume += 2;
-        pp->jump_offset += (signed char) jmp_ptr[1] + 2;
-    } else if (jmp_ptr[0] == 0x0f && jmp_ptr[1] == 0x84) {
-        // jee 4 byte
-        pp->jump_to_block = 1;
-        // 2 byte opcode + 4 byte address
-        *consume += 6;
-        pp->jump_offset += *((int *)&jmp_ptr[2]) + 6;
-
-    } else if (jmp_ptr[0] == 0x0f && jmp_ptr[1] == 0x85) {
-        // jne 4 byte
-        pp->jump_to_block = 0;
-        // 2 byte opcode + 4 byte address
-        *consume += 6;
-        pp->jump_offset += *((int *)&jmp_ptr[2]) + 6;
-    } else {
-        return false;
-    }
-    return true;
-}
-
 bool
-__patch_point_find_cmp(unsigned char *call_ptr, int *consume) {
+__patch_point_find_cmp(unsigned char *call_ptr,  char **jmp_ptr) {
     // Jump over call
     call_ptr += 5;
     /* Determine where the compare starts, since there can be
@@ -159,9 +113,47 @@ __patch_point_find_cmp(unsigned char *call_ptr, int *consume) {
     if (!(call_ptr[0] == 0x83)) // cmp
         return false;
 
-    *consume = 5 + i + 3;
+    *jmp_ptr = &call_ptr[0];
     return true;
 }
+
+static bool
+__patch_point_decode_jump(unsigned char *jmp_ptr, struct patch_point *pp, int *consume) {
+    if (jmp_ptr[0] == 0x74) { // je 2 byte
+        pp->jump_to_block = 1;
+
+        // Jump offset from first byte of call
+        // je {block_address}
+        // {else_block}
+        *consume += 2;
+        pp->jumpto_ptr = jmp_ptr + (signed char)jmp_ptr[1] + 2;
+
+    } else if (jmp_ptr[0] == 0x75) { // jne 2 byte
+        pp->jump_to_block = 0;
+
+        // jn {else_block}
+        // {block}
+        *consume += 2;
+        pp->jumpto_ptr = jmp_ptr + (signed char) jmp_ptr[1] + 2;
+    } else if (jmp_ptr[0] == 0x0f && jmp_ptr[1] == 0x84) {
+        // jee 4 byte
+        pp->jump_to_block = 1;
+        // 2 byte opcode + 4 byte address
+        *consume += 6;
+        pp->jumpto_ptr = jmp_ptr + *((int *)&jmp_ptr[2]) + 6;
+
+    } else if (jmp_ptr[0] == 0x0f && jmp_ptr[1] == 0x85) {
+        // jne 4 byte
+        pp->jump_to_block = 0;
+        // 2 byte opcode + 4 byte address
+        *consume += 6;
+        pp->jumpto_ptr = jmp_ptr + *((int *)&jmp_ptr[2]) + 6;
+    } else {
+        return false;
+    }
+    return true;
+}
+
 
 
 
@@ -208,55 +200,32 @@ int
 
     struct patch_point * pp = malloc(sizeof(struct patch_point));
     __patch_point_assert(pp);
-    pp->jump_ptr = (char *) call_address;
+    pp->call_ptr = (char *) call_address;
 
 
-    int consume;
     __patch_point_assert
-        ( __patch_point_find_cmp((unsigned char *)call_address, &consume));
+        ( __patch_point_find_cmp((unsigned char *)call_address, &pp->cmp_ptr));
 
     // Pointer to the jump
-    int jmp_addr = consume;
-    pp->jump_offset = jmp_addr;
+    int consume = 3;
     __patch_point_assert
-        ( __patch_point_decode_jump(&call_address[jmp_addr], pp,
+        ( __patch_point_decode_jump(pp->cmp_ptr + 3, pp,
                                     &consume));
 
-    // Search for movl $(TEXT) %e[cd]x
-    // before call address, in order to remove them, they are used
-    // within the fast call of __patch_point
-    int movl_length = 0;
-    unsigned char *movl_ptr = call_address;
-    while (movl_length < 2) {
-        movl_ptr -= 5;
-        if (movl_ptr[0] == 0xb9) { // movl ecx
-            if (*((int*)&movl_ptr[1]) != (int) ppl) {
-                break;
-            }
-        } else if (movl_ptr[0] == 0xba) { // movl edx
-            if (*((int*)&movl_ptr[1]) != (int) name) {
-                break;
-            }
-        } else {
-            break;
-        }
-        movl_length ++;
-    }
-    // Consume the movls before out call
-    pp->jump_offset += (movl_length * 5);
-    pp->jump_ptr -= (movl_length * 5);
-    consume += (movl_length * 5);
-
-    pp->jump_space = consume;
-
     // Make code writable
-    __patch_point_writable(pp->jump_ptr, true);
+    __patch_point_writable(pp->cmp_ptr, true);
     int i;
     for (i = 0; i < consume; i++)
-        pp->jump_ptr[i] = 0x90;
+        pp->cmp_ptr[i] = 0x90;
+
+    pp->call_ptr[0] = 0x90;
+    pp->call_ptr[1] = 0x8d;
+    pp->call_ptr[2] = 0x74;
+    pp->call_ptr[3] = 0x26;
+    pp->call_ptr[4] = 0x00;
 
     // make code not writable again
-    __patch_point_writable(pp->jump_ptr, false);
+    __patch_point_writable(pp->cmp_ptr, false);
 
     __patch_point_set_jump(pp, patch_point_get(ppl, name));
 
